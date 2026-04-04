@@ -239,6 +239,11 @@ def grid_search_auto_tune():
     # Kopyalama işlemi (En iyi modeli ana dizine cikarir)
     shutil.copyfile(best_original_path, target_path)
     
+    best_config_path = os.path.join(best_candidate["folder"], "config.json")
+    target_config_path = os.path.join(BASE_DIR, "EN_IYI_MODEL_config.json")
+    if os.path.exists(best_config_path):
+        shutil.copyfile(best_config_path, target_config_path)
+    
     print(f"\n[***] TACI ALAN SIZINTI: Model_{best_candidate['model_id']} en dusuk hata payini ({best_candidate['val_loss']:.4f}) elde etti!")
     print(f"Yapay zeka beyni ana dizine kopyalandi -> {target_path}")
     print("[***] Egitim Modulu Kapaniyor, inferans kodunda bu yeni modeli cagirabilirsiniz!")

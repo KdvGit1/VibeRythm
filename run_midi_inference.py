@@ -1,4 +1,54 @@
+"""
+1. Başlangıç Notaları (Pitch Numbers - 60, 36, 38 vb.)
+instruments_setup içindeki numaralar (örneğin 60), enstrümanın çalmaya başlayacağı ilk notanın frekansıdır (oktavıdır). Yapay zeka ilk notayı buradan alır, gerisini kendisi hayal edip uydurmaya devam eder.
+
+60 (Middle C / Orta Do): Çoğu enstrüman (Piyano, Elektro Gitar, Flüt) için ideal insan kulağı orta seviyesidir.
+48 (C3 / 1 Oktav Alt): Çello gibi daha tok ve derin sesler için.
+36 (C2 / 2 Oktav Alt): Bas Gitar veya kontrbas için. (Bas gitara 60 verirsek incecik keman gibi ses çıkarır, bu yüzden 36'dan başlattım).
+72 (C5 / 1 Oktav Üst): Keman, Piccolo veya ince Synthesizer lead sesleri için.
+Bateri Notu (Sadece Drums kanalında geçerlidir): Bateride notalar do-re-mi değildir; davul parçalarıdır. (35 veya 36: Kick Davulu, 38: Trampet/Snare, 42: Hi-Hat).
+2. Enstrüman İsimleri (Tırnak İçine Yazdığımız İsimler)
+Tırnak içine (örneğin 'Distortion Guitar') tam olarak doğru ismi İngilizce ve standarda uygun yazman lazım. Kodda instruments_setup kısmına aşağıdakilerden beğendiklerini yazarak deneyebilirsin:
+
+Gitarlar ve Baslar
+
+'Acoustic Guitar (nylon)' veya 'Acoustic Guitar (steel)'
+'Electric Guitar (clean)', 'Electric Guitar (jazz)' veya 'Electric Guitar (muted)'
+'Overdriven Guitar' veya 'Distortion Guitar'
+'Acoustic Bass'
+'Electric Bass (finger)' veya 'Electric Bass (pick)'
+'Fretless Bass' veya 'Slap Bass 1'
+Piyanolar ve Tuşlular
+
+'Acoustic Grand Piano'
+'Electric Piano 1' veya 'Electric Piano 2'
+'Harpsichord' (Klavsen)
+'Clavinet'
+'Church Organ'
+'Accordion'
+Yaylılar (Strings)
+
+'Violin' (Keman)
+'Viola' (Viyola)
+'Cello'
+'Contrabass'
+'String Ensemble 1' (Keman Orkestrası)
+Üflemeliler (Brass / Woodwinds)
+
+'Trumpet'
+'Trombone'
+'French Horn'
+'Flute'
+'Saxophone' (Kodda direkt Alto, Tenor girebilirsin örn: 'Alto Sax')
+Synthesizer / Elektronik (Özellikle VibeRythm'in ilginç şeyler yapabileceği sesler)
+
+'Lead 1 (square)', 'Lead 2 (sawtooth)'
+'Pad 1 (new age)', 'Pad 2 (warm)', 'Pad 3 (polysynth)'
+'FX 1 (rain)', 'FX 2 (soundtrack)'
+"""
+
 import os
+import json
 import torch
 import pretty_midi
 import argparse
@@ -9,78 +59,110 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def generate_midi(model_path, emotion_idx, num_notes=50, out_file="generated.mid"):
     # 1. Modeli Yukle
-    model = MidiEmotionLSTM(emotion_classes=4, pitch_classes=128, embed_dim=64, hidden_dim=256, num_layers=2, dropout=0.3)
+    embed_dim = 64
+    hidden_dim = 256
+    num_layers = 2
+    dropout = 0.3
+    
+    model_dir = os.path.dirname(model_path)
+    model_name = os.path.basename(model_path)
+    
+    config_path = None
+    if model_name == "EN_IYI_MODEL.pth":
+        config_path = os.path.join(model_dir, "EN_IYI_MODEL_config.json")
+    elif os.path.exists(os.path.join(model_dir, "config.json")):
+        config_path = os.path.join(model_dir, "config.json")
+        
+    if config_path and os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            config = json.load(f)
+            embed_dim = config.get("embed_dim", embed_dim)
+            hidden_dim = config.get("hidden_dim", hidden_dim)
+            num_layers = config.get("num_layers", num_layers)
+            dropout = config.get("dropout", dropout)
+        print(f"[*] Config yuklendi: E={embed_dim}, H={hidden_dim}, L={num_layers}, D={dropout}")
+    else:
+        print("[!] Config bulunamadi, varsayilan model parametreleri kullaniliyor.")
+
+    model = MidiEmotionLSTM(emotion_classes=4, pitch_classes=128, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout)
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.to(device)
     model.eval()
-    
-    # 2. Uretim Icin Ilk Baslangic Notasi 
-    # Bosluktan nota uretmek zordur, piyanoda orta Do (Pitch: 60) ile baslatiyoruz. Sirasiyla (Pitch, Velocity, Duration)
-    current_notes = [[60, 80, 0.5]]
     
     # Modelin uretecegi duygu hedefini ayarlayalim (Q1:0, Q2:1, Q3:2, Q4:3)
     emotion_tensor = torch.tensor([emotion_idx], dtype=torch.long).to(device)
     
     duygular = {0: "Q1 - Neseli/Mutlu", 1: "Q2 - Gergin/Korkulu", 2: "Q3 - Uzgun/Melankolik", 3: "Q4 - Huzurlu/Rahat"}
-    print(f"\n[*] Muzik Uretimi Basladi: {duygular.get(emotion_idx, 'Bilinmeyen Duygu')}")
+    print(f"\n[*] Orkestra Uretimi Basladi: {duygular.get(emotion_idx, 'Bilinmeyen Duygu')}")
     
-    with torch.no_grad():
-        for i in range(num_notes):
-            # Formati Tensor yap (1 Batch, x Notalik Gecmis, 3 Ozellik)
-            notes_tensor = torch.tensor([current_notes], dtype=torch.float32).to(device)
-            
-            # Modele gecmisi ve duyguyu gonder
-            pitch_logits, vel_preds, dur_preds = model(notes_tensor, emotion_tensor)
-            
-            # Model diziyi kaydirarak tahmin ettigi icin bize en sondayken atilan son tahmin lazim (siradaki nota)
-            next_pitch_logits = pitch_logits[0, -1, :] # 128 genisliginde ihtimaller silsilesi
-            next_vel = vel_preds[0, -1].item()
-            next_dur = dur_preds[0, -1].item()
-            
-            # --- YARATICILIK VE TEKRAR KORUMASI ---
-            # En yuksek pitch'i aramak yerine Softmax ile "Ihtimaller icerisinden rastgele" oransal cekim yapiyoruz. 
-            # (Bu modelin daha insansi ve yaratici calmasini saglar)
-            probs = torch.softmax(next_pitch_logits, dim=-1)
-            next_pitch = torch.multinomial(probs, 1).item()
-            
-            # 3 Kere ayni nota tehlikesi var mi? (Egitimde onlemistik ama yine de saglama alalim)
-            if len(current_notes) >= 2 and current_notes[-1][0] == next_pitch and current_notes[-2][0] == next_pitch:
-                # Eger ayni nota 3. defa rastgeldiyse, siradaki en yuksek 3 ihtimale bak
-                top_p, top_class = torch.topk(probs, 3)
-                for p_class in top_class:
-                    if p_class.item() != next_pitch:
-                        next_pitch = p_class.item() # Yeni varyasyonu atayip donguyu kir
-                        break
-                        
-            # --- SINIR YUVALAMALARI ---
-            # Egitim basindayken cok dusuk sesler verebiliyor, duymak icin en az 60 ses katsayisi ekliyoruz
-            next_vel = max(60, min(127, int(next_vel)))
-            next_dur = max(0.2, min(3.0, next_dur)) # Cizirtilari engellemek icin minimum 0.2 saniye uzunluk
-            
-            
-            # Uretilen notayi zincire ekle (Diger adimda gecmis olacak)
-            current_notes.append([next_pitch, next_vel, next_dur])
-            
-    # 3. Listeyi Muzige (.mid) Cevirme Zamani
-    print(f"[*] MIDI dosyasi isleniyor -> {out_file}")
+    instruments_setup = {
+        'Acoustic Guitar (nylon)': 36,
+        'Electric Bass (finger)': 36
+    }
+    
     midi = pretty_midi.PrettyMIDI()
-    piano_program = pretty_midi.instrument_name_to_program('Acoustic Grand Piano')
-    piano = pretty_midi.Instrument(program=piano_program)
     
-    current_time = 0.0
-    for pitch, vel, dur in current_notes:
-        note = pretty_midi.Note(
-            velocity=int(vel),
-            pitch=int(pitch),
-            start=current_time,
-            end=current_time + dur
-        )
-        piano.notes.append(note)
-        current_time += dur
+    for instr_name, start_pitch in instruments_setup.items():
+        print(f"  -> Uretiliyor: {instr_name}")
+        current_notes = [[start_pitch, 80, 0.5]]
         
-    midi.instruments.append(piano)
+        with torch.no_grad():
+            for i in range(num_notes):
+                # Formati Tensor yap (1 Batch, x Notalik Gecmis, 3 Ozellik)
+                notes_tensor = torch.tensor([current_notes], dtype=torch.float32).to(device)
+                
+                # Modele gecmisi ve duyguyu gonder
+                pitch_logits, vel_preds, dur_preds = model(notes_tensor, emotion_tensor)
+                
+                # Model diziyi kaydirarak tahmin ettigi icin bize en sondayken atilan son tahmin lazim (siradaki nota)
+                next_pitch_logits = pitch_logits[0, -1, :] 
+                next_vel = vel_preds[0, -1].item()
+                next_dur = dur_preds[0, -1].item()
+                
+                # --- YARATICILIK VE TEKRAR KORUMASI ---
+                probs = torch.softmax(next_pitch_logits, dim=-1)
+                next_pitch = torch.multinomial(probs, 1).item()
+                
+                # 3 Kere ayni nota tehlikesi var mi?
+                if len(current_notes) >= 2 and current_notes[-1][0] == next_pitch and current_notes[-2][0] == next_pitch:
+                    top_p, top_class = torch.topk(probs, 3)
+                    for p_class in top_class:
+                        if p_class.item() != next_pitch:
+                            next_pitch = p_class.item()
+                            break
+                            
+                # --- SINIR YUVALAMALARI ---
+                next_vel = max(60, min(127, int(next_vel)))
+                next_dur = max(0.2, min(3.0, next_dur))
+                
+                current_notes.append([next_pitch, next_vel, next_dur])
+                
+        # 3. Listeyi Muzige (.mid) Cevirme Zamani
+        is_drum = False
+        if instr_name == 'Drums':
+            program = 0
+            is_drum = True
+        else:
+            program = pretty_midi.instrument_name_to_program(instr_name)
+            
+        instrument = pretty_midi.Instrument(program=program, is_drum=is_drum)
+        
+        current_time = 0.0
+        for pitch, vel, dur in current_notes:
+            note = pretty_midi.Note(
+                velocity=int(vel),
+                pitch=int(pitch),
+                start=current_time,
+                end=current_time + dur
+            )
+            instrument.notes.append(note)
+            current_time += dur
+            
+        midi.instruments.append(instrument)
+        
     midi.write(out_file)
-    print(f"[+] MUTEKIYET VERILDI: {num_notes} notalik muzik basariyla yaratilip '{out_file}' olarak kaydedildi!\n")
+    print(f"\n[*] MIDI dosyasi isleniyor -> {out_file}")
+    print(f"[+] MUTEKIYET VERILDI: {len(instruments_setup)} enstrumanli orkestra {num_notes} notalik muzik basariyla yaratilip '{out_file}' olarak kaydedildi!\n")
 
     # 4. SESI DIREKT OLARAK YANSITMA (PYGAME ILE)
     try:
