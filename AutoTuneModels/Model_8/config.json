@@ -1,7 +1,8 @@
 {
-    "embed_dim": 32,
-    "hidden_dim": 256,
+    "d_model": 32,
+    "hidden_dim": 128,
     "num_layers": 2,
-    "dropout": 0.5,
+    "num_heads": 4,
+    "dropout": 0.3,
     "lr": 0.001
 }
