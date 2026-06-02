@@ -1,0 +1,162 @@
+================================================================================
+PROJE SUNUM DÖKÜMANI: VIBERYTHM - GERÇEK ZAMANLI KARAKTER VE KESİNTİSİZ DUYGU MOTORU
+================================================================================
+
+Bu dosya, dersteki proje sunumunuzda kullanmanız için tüm teknik detayları, mimari 
+yapıyı ve adım adım çalışma mantığını içermektedir. Sunum sırasında buradaki başlıkları 
+kullanarak slaytlarınızı hazırlayabilir ve anlatımınızı yapabilirsiniz.
+
+--------------------------------------------------------------------------------
+1. PROJE ÖZETİ VE AMACI (VIBERYTHM NEDİR?)
+--------------------------------------------------------------------------------
+VibeRythm, video akışındaki (veya kameradaki) insan yüzlerini tespit eden, 
+bu yüzlerin kime ait olduğunu (Karakter Teşhisi) ve o anki duygu durumunu (Duygu Analizi) 
+eş zamanlı belirleyen, ardından sahnedeki baskın duyguya uygun olacak şekilde 
+arka planda canlı yapay zeka müzikleri üreten ve çalan uçtan uca bir sistemdir.
+
+Sistemin en önemli iki özelliği:
+1. Az Veriyle Öğrenme (One-Shot Learning / Transfer Learning): Her karakter için 
+   sadece 1 adet referans fotoğrafı alarak zenginleştirir ve modeli saniyeler içinde eğitir.
+2. Kesintisiz Gerçek Zamanlı Müzik Üretimi (Seamless Real-Time Generation): 
+   Duygu değişimlerinde müzik kesilmez veya baştan başlamaz. Müzik motoru son çalınan 
+   notaları hafızasında (sliding window) tutar ve yeni duyguya uygun notaları bu geçmişe 
+   ekleyerek üretmeye devam eder. Bu sayede müzik hiç duraksamadan ve sıfırlanmadan 
+   akıcı bir şekilde yeni hisse (vibe) geçiş yapar.
+
+--------------------------------------------------------------------------------
+2. TEKNOLOJİ YIĞINI (TECHNOLOGY STACK)
+--------------------------------------------------------------------------------
+Projede kullanılan temel kütüphaneler ve görevleri şunlardır:
+- Python: Projenin ana programlama dili.
+- PyTorch: Karakter sınıflandırıcı (ResNet-18) ve MIDI Müzik Üretici (LSTM) modelleri için.
+- MediaPipe (Face Detector): Yüzleri gerçek zamanlı ve milisaniyeler içinde bulmak için.
+- OpenCV: Video karelerini okuma, işleme, üzerine görsel etiket çizme ve çıktı 
+  videosunu kaydetme işlemleri için.
+- Pygame (MIDI): Ses kartına (Windows Microsoft GS Wavetable Synth) doğrudan bağlanarak 
+  yapay zeka tarafından üretilen notaları canlı, gecikmesiz ve kesintisiz çalmak için.
+- Torchvision: Pre-trained ResNet-18 ve veri çoğaltma (augmentasyon) işlemleri için.
+
+--------------------------------------------------------------------------------
+3. PROJE MİMARİSİ VE ÇALIŞMA ADIMLARI
+--------------------------------------------------------------------------------
+
+Sistem toplamda 4 ana aşamadan oluşmaktadır:
+
+AŞAMA 1: Yüz Kırpma ve Veri Çoğaltma (augment_characters.py)
+------------------------------------------------------------
+- Kullanıcı, "lotr_characters/input/" klasörüne her karakter için 1 adet fotoğraf koyar.
+  (Örn: frodo.jpg, gandalf.png, aragorn.jpg).
+- Program, MediaPipe FaceDetector kullanarak bu fotoğraflardaki yüzü tespit eder ve
+  sadece yüzün olduğu alanı keserek 224x224 boyutuna getirir.
+- Tek bir yüz fotoğrafından, modelin farklı açılara, ışık koşullarına, yönelimlere ve
+  boyutlara adapte olabilmesi için Torchvision Transforms kullanılarak 100 adet 
+  benzersiz yeni yüz resmi üretilir.
+- Çoğaltılan resimler "lotr_characters/augmented/<karakter_adi>/" altına kaydedilir.
+
+> AKADEMİK NOT (HOG vs. CNN Karşılaştırması):
+> Sunumda HOG (Histogram of Oriented Gradients) tekniğinden bahsedebilirsiniz. HOG,
+> görüntüdeki piksellerin gradyan (yön ve şiddet) vektörlerini hesaplayarak şekil 
+> sınırlarını çıkaran geleneksel bir bilgisayarlı görü yöntemidir.
+> Biz projemizde, HOG felsefesi olan "yönelim ve kenar duyarlılığı"nı, resimlere rastgele 
+> döndürme, ışıklandırma ve açı vermeyle (veri çoğaltma) çözdük. Derin CNN (ResNet-18) 
+> mimarisi bu gradyanları ve kenar özelliklerini katmanlarında otomatik öğrenir.
+
+AŞAMA 2: Karakter Modelinin Eğitimi (train_character_recognition.py)
+---------------------------------------------------------------------
+- Önceden eğitilmiş ResNet-18 modelinin son katmanı bizim karakter sayımıza göre değiştirilir.
+- Çoğaltılan yüz görselleri üzerinde sadece 10 epoch eğitilir. Transfer öğrenmesi 
+  sayesinde eğitim 20-30 saniye sürer ve doğruluk oranı %98-100 arasına ulaşır.
+- Eğitilen ağırlıklar "character_model.pth" dosyasına kaydedilir.
+
+AŞAMA 3: Entegre Çıkarım Döngüsü (run_character_inference.py)
+--------------------------------------------------------------
+Video akışı (`lotrTrailer.mp4`) OpenCV ile kare kare işlenirken şu adımlar uygulanır:
+1. **Yüz Tespiti**: MediaPipe ile karedeki tüm yüzler milisaniyeler içinde bulunur.
+2. **Karakter Tanıma**: Bulunan yüzler 224x224 boyutunda ResNet-18 modeline beslenir.
+3. **Duygu Tanıma**: Bulunan yüzler 48x48 boyutunda gri tonlamalı olarak önceden eğitilmiş 
+   EmotionCNN modeline beslenir (Kızgın, Üzgün, Mutlu vb.).
+4. **Görselleştirme**: Her yüzün etrafına bir kutu çizilir ve üzerine isim ile o anki 
+   duygusu yazılır. (Örn: FRODO | MUTLU veya GANDALF | SINIRLI).
+
+AŞAMA 4: Canlı Kesintisiz Duygu Motoru (MidiVibeEngine)
+-------------------------------------------------------
+- Her karedeki tüm karakterlerin yüz ifadelerinden o anki **Baskın Duygu** hesaplanır.
+- Bu duygu, MIDI çeyreğine (Quadrant) eşleştirilir:
+  - Happy/Surprise -> Q1 (Coşkulu, neşeli müzik)
+  - Angry/Fear -> Q2 (Gergin, sinirli müzik)
+  - Disgust/Sad -> Q3 (Hüzünlü, melankolik müzik)
+  - Neutral -> Q4 (Huzurlu, sakin müzik)
+- **Kesintisiz Geçiş Teknolojisi**:
+  1. Arka planda bir çalma döngüsü (`_play_loop`) sürekli çalışır. Bu döngü son çalınan 
+     32 notayı sürekli hafızasında tutar.
+  2. Bir sonraki notayı üretmek üzereyken, o anki baskın duygu durumunu LSTM modelimize besler.
+  3. Model, son 32 notanın oluşturduğu müzikal akışı devam ettirecek ama yeni duygunun havasını 
+     (vibe) yansıtacak sıradaki notayı canlı olarak tahmin eder.
+  4. Tahmin edilen nota `pygame.midi` aracılığıyla doğrudan Windows'un dahili synthesizer'ına 
+     (Microsoft GS Wavetable Synth) gönderilerek canlı çalınır.
+  5. Ayrıca harmoni sağlamak amacıyla, melodinin 2 oktav altından bas gitar eşlik notası 
+     otomatik olarak basılır.
+  6. Bu tasarım sayesinde müzik hiçbir zaman durmaz, baştan başlamaz, kekelemez; videodaki 
+     sahneler değiştikçe melodi doğal bir şekilde yeni duyguya evrilir.
+
+--------------------------------------------------------------------------------
+4. ADIM ADIM ÇALIŞTIRMA KILAVUZU
+--------------------------------------------------------------------------------
+Sistemi sıfırdan çalıştırmak için şu adımları izleyin:
+
+1. Adım: Bağımlılıkları Kurun
+   > pip install -r requirements.txt
+
+2. Adım: Karakter Görsellerini Yerleştirin
+   "lotr_characters/input/" klasörünün içerisine tanıtmak istediğiniz karakterlerin 
+   birer adet fotoğrafını yükleyin. Dosya adını karakterin ismi yapın (örn: frodo.jpg).
+
+3. Adım: Veri Çoğaltma Scriptini Çalıştırın
+   > python augment_characters.py
+   Bu script yüzleri kırpacak ve her karakter için 100'er adet resmi "augmented" klasörüne atacaktır.
+
+4. Adım: Modeli Eğitin
+   > python train_character_recognition.py
+   Bu script ResNet-18 modelini transfer öğrenmesiyle eğitecek ve "character_model.pth" oluşturacaktır.
+
+5. Adım: Videoyu Canlı Oynatın ve Kesintisiz Müzik Motorunu Dinleyin
+   > python run_character_inference.py
+   Bu komutla beraber Lord of the Rings videosu açılacak, ekrandaki kişilere göre yapay zeka 
+   canlı müzik üretecek, çalacak ve işlenmiş videoyu "lotrTrailer_annotated.mp4" olarak kaydedecektir.
+
+--------------------------------------------------------------------------------
+5. SUNUM ESNASINDA ANLATILABİLECEK SLAYT BAŞLIKLARI VE KONUŞMA TÜYOLARI
+--------------------------------------------------------------------------------
+
+Slayt 1: Kapak & Proje Tanımı
+- Başlık: VibeRythm - Canlı Video Analizi ile Gerçek Zamanlı Yüz Tanıma ve Kesintisiz Müzik Motoru
+- Konuşma Tüyosu: "Hocam, projemizin adı VibeRythm. Bu projede, videodaki karakterlerin 
+  yüz ifadelerini ve kimliklerini gerçek zamanlı takip edip, sahnenin hissettiği duyguya 
+  uygun olarak arka planda KESİNTİSİZ canlı yapay zeka müzikleri üreten bir sistem geliştirdik."
+
+Slayt 2: Karşılaşılan Sorun ve Çözüm Yaklaşımı
+- Sorun: Geleneksel müzik motorlarında duygu değiştiğinde çalan parçanın durup yenisinin 
+  baştan başlaması dinleyiciyi rahatsız eder ve müzikal bütünlüğü bozar.
+- Çözüm: Son çalınan notaları hafızada tutan bir kayan pencere (sliding window) mekanizması 
+  ve yeni duyguyu bu pencereye besleyen kesintisiz LSTM tasarımı.
+
+Slayt 3: HOG (Histogram of Oriented Gradients) ve CNN Yaklaşımı
+- Açıklama: Geleneksel HOG gradyan yönelimlerini elle çıkarırken; biz veri kümesini 
+  ışık, açı ve yön olarak zenginleştirip modern CNN modellerine besledik. 
+  Model bu özellikleri kendisi otomatik olarak öğrenmektedir.
+
+Slayt 4: Kesintisiz Canlı Müzik Motoru (Real-time MIDI Synthesis)
+- Açıklama: LSTM modelimiz, son 32 notayı geçmiş olarak alır ve bir sonraki notanın 
+  ses perdesini (pitch) ve süresini (duration) tahmin eder. `pygame.midi` sayesinde, 
+  bilgisayarın ses kartına doğrudan nota emirleri verilerek sıfır gecikmeli canlı performans alınır.
+
+Slayt 5: Sistem Akış Şeması
+- [Video Kareleri] -> [MediaPipe Yüz Tespiti] -> [ResNet-18 Karakter Tanıma & EmotionCNN Duygu Tanıma] 
+  -> [Baskın Duygunun Çeyreklere Eşleşmesi] -> [Hafızadaki Son Notalarla Birlikte LSTM Girdisi] 
+  -> [pygame.midi ile Canlı ve Kesintisiz Çalma]
+
+Slayt 6: Sonuçlar ve Canlı Gösterim
+- Videodan alınan kareler, yüz kutuları ve "FRODO | HUZURLU", "GANDALF | SINIRLI" gibi etiketler.
+- Arka planda sahne değiştikçe melodinin ve bas gitar eşliğinin bölünmeden, 
+  aksamadan yeni duyguya nasıl doğal bir geçiş yaptığının dinletilmesi.
+================================================================================

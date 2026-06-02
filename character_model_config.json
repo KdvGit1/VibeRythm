@@ -1,0 +1,11 @@
+{
+    "classes": [
+        "aragorn",
+        "boromir",
+        "frodo",
+        "gimli",
+        "legolas",
+        "sam"
+    ],
+    "num_classes": 6
+}

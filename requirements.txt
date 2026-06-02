@@ -1,0 +1,9 @@
+# VibeRythm LOTR Karakter Tanıma Projesi Gereksinimleri
+# Kurulum için: pip install -r requirements.txt
+
+torch>=2.0.0
+torchvision>=0.15.0
+mediapipe>=0.10.0
+opencv-python>=4.7.0
+numpy>=1.20.0
+pillow>=9.0.0
